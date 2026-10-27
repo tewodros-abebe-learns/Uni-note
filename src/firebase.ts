@@ -221,14 +221,26 @@ export interface Folder {
 export const getTimestampMs = timestampMs;
 
 
-export const getAllFolders = async (userId: string): Promise<Folder[]> => {
+// Concurrent callers (navigation, login, reconnect) share one in-flight
+// collection read instead of each downloading the whole vault and racing
+// to apply it. Settled reads are never cached, so freshness is unchanged.
+const inFlightReads = new Map<string, Promise<unknown>>();
+function dedupeRead<T>(key: string, read: () => Promise<T>): Promise<T> {
+  const existing = inFlightReads.get(key) as Promise<T> | undefined;
+  if (existing) return existing;
+  const promise = read().finally(() => { if (inFlightReads.get(key) === promise) inFlightReads.delete(key); });
+  inFlightReads.set(key, promise as Promise<unknown>);
+  return promise;
+}
+
+export const getAllFolders = (userId: string): Promise<Folder[]> => dedupeRead(`folders:${userId}`, async (): Promise<Folder[]> => {
   try {
     const snapshot = await withTimeout(getDocs(collection(getFirebaseDb(), `users/${userId}/folders`)), 15000, 'getAllFolders');
     const cloud = snapshot.docs.map(item => ({ ...item.data(), id: item.id })) as Folder[];
     const merged = mergeWithOutbox(userId, 'folders', loadGuestFolders(userId), cloud);
     saveGuestFolders(merged, userId); return merged;
   } catch { if (getFirebaseAuth().currentUser?.uid === userId) setCloudWarning('Could not refresh cloud folders. Showing the local account cache; Retry cloud sync when connected.'); return loadGuestFolders(userId); }
-};
+});
 
 export const createFolder = async (userId: string, name: string, parentId: string | null, level: number): Promise<Folder> =>
   saveFolderDirect(userId, { id: `folder_${crypto.randomUUID()}`, name, parentId, level, createdAt: Date.now() });
@@ -293,7 +305,7 @@ export const getNotes = async (userId: string, folderId: string): Promise<Note[]
   }
 };
 
-export const getAllNotes = async (userId: string): Promise<Note[]> => {
+export const getAllNotes = (userId: string): Promise<Note[]> => dedupeRead(`notes:${userId}`, async (): Promise<Note[]> => {
   try {
     const snapshot = await withTimeout(getDocs(collection(getFirebaseDb(), `users/${userId}/notes`)), 15000, 'getAllNotes');
     const cloud = snapshot.docs.map(item => ({ ...item.data(), id: item.id })) as Note[];
@@ -301,7 +313,7 @@ export const getAllNotes = async (userId: string): Promise<Note[]> => {
     const merged = mergeWithOutbox(userId, 'notes', loadGuestNotes(userId), cloud);
     saveGuestNotes(merged, userId); return merged;
   } catch { if (getFirebaseAuth().currentUser?.uid === userId) setCloudWarning('Could not refresh cloud notes. Showing the local account cache; Retry cloud sync when connected.'); return loadGuestNotes(userId); }
-};
+});
 
 export const createNote = async (userId: string, folderId: string, title: string, sections?: NoteSection[]): Promise<Note> =>
   saveNoteDirect(userId, { id: `note_${crypto.randomUUID()}`, folderId: folderId || 'general', title, sections: sections?.length ? sections : [{ id: 's1', title: 'Introduction', content: '' }], createdAt: Date.now() });
@@ -310,7 +322,9 @@ export const saveNoteDirect = async (userId: string, note: Note): Promise<Note> 
   assertOwner(userId);
   const current = loadGuestNotes(userId);
   const targetVersion = Math.max(Date.now(), version(note) + 1, (version(current.find(n => n.id === note.id) || note)) + 1);
-  const data: Note = { ...note, updatedAt: targetVersion, isLocalOnly: false, isImported: false };
+  // Clamp at the single write choke point so no caller (editor, rename,
+  // import-keep, guest migration) can stage a note the rules must reject.
+  const data: Note = { ...note, title: (note.title || 'Untitled Note').slice(0, 300), updatedAt: targetVersion, isLocalOnly: false, isImported: false };
   // Preserve a real edit timestamp; retries reuse the staged snapshot, never re-stamp it.
   stageWrite(userId, 'notes', data);
   saveGuestNotes([data, ...current.filter(n => n.id !== note.id)], userId);
@@ -320,7 +334,7 @@ export const saveNoteDirect = async (userId: string, note: Note): Promise<Note> 
 export const saveFolderDirect = async (userId: string, folder: Folder): Promise<Folder> => {
   assertOwner(userId);
   const current = loadGuestFolders(userId);
-  const data: Folder = { ...folder, name: folder.name.trim() || 'Untitled Folder', parentId: folder.parentId || null, updatedAt: Math.max(Date.now(), version(folder), version(current.find(f => f.id === folder.id) || folder) + 1) };
+  const data: Folder = { ...folder, name: (folder.name.trim() || 'Untitled Folder').slice(0, 200), parentId: folder.parentId || null, updatedAt: Math.max(Date.now(), version(folder), version(current.find(f => f.id === folder.id) || folder) + 1) };
   stageWrite(userId, 'folders', data);
   saveGuestFolders([...current.filter(f => f.id !== folder.id), data], userId);
   return withTimeout(commitStaged(userId, 'folders', data) as Promise<Folder>, 15000, 'saveFolderDirect');
@@ -446,9 +460,8 @@ export async function fetchVaultMediaFromFirestore(uid: string, id: string): Pro
           assembled += data[`chunk_${i}`];
         } else {
           const partSnap = await getDoc(doc(db, `users/${uid}/media`, `${id}__p${i}`));
-          if (partSnap.exists()) {
-            assembled += partSnap.data().data || '';
-          }
+          if (!partSnap.exists()) return null; // Incomplete backup: report missing, never render corrupt data.
+          assembled += partSnap.data().data || '';
         }
       }
       dataUrl = assembled;
@@ -477,9 +490,10 @@ const accountSync = createAccountSync({
     if (kind === 'notes' && !data.deletedAt) {
       data.sections = await Promise.all((data as Note).sections.map(async section => ({
         ...section,
-        // No catch: if an image cannot be backed up to the cloud, the whole
-        // note commit fails and stays in the outbox for retry, rather than
-        // publishing a note whose image exists only in this browser.
+        // Media backup is decoupled from the note commit (see
+        // uploadVaultImage): the note always syncs; un-backed-up images
+        // stay staged in the media outbox and are reported by the health
+        // center, instead of failing every save of the whole note.
         content: await promoteMediaContent(await sanitizeContentImages(section.content), id => uploadVaultImage(uid, id))
       })));
     }
@@ -528,14 +542,22 @@ function uploadVaultImage(uid: string, id: string): Promise<string> {
   return enqueueImageUpload(`${uid}/${id}`, async () => {
     assertOwner(uid);
     if (readMediaMap(mediaReceiptsKey(uid))[id]) return id;
-    const blob = await getLocalMediaBlob(id);
-    if (!blob) throw new Error(`Image ${id} is missing from this browser, so it cannot be synced. Re-insert it before relying on cloud sync.`);
     stageMedia(uid, id);
+    const blob = await getLocalMediaBlob(id);
+    if (!blob) {
+      // Not in this browser (e.g. new device or new site origin). Keep it
+      // staged for a browser that has it; do NOT fail the note commit.
+      console.warn('Image not present in this browser; media backup stays staged:', id);
+      return id;
+    }
     try {
       await saveVaultMediaToFirestore(uid, id, blob);
     } catch (error) {
-      console.warn('Cloud media backup failed for', id, error);
-      throw error instanceof Error ? error : new Error(`Image ${id} could not be backed up to the cloud. It remains staged for retry.`);
+      // The note still commits; the image remains staged and visible in the
+      // Sync & Media health center instead of poisoning every note save.
+      console.warn('Cloud media backup failed; image stays staged for retry:', id, error);
+      setCloudWarning('One or more images could not be backed up to the cloud yet. Your notes are synced and the images are safe where they were inserted; open Sync & Media in your account panel for details, then Retry cloud sync.');
+      return id;
     }
     writeLocalValue(mediaReceiptsKey(uid), JSON.stringify({ ...readMediaMap(mediaReceiptsKey(uid)), [id]: 'firestore' }));
     settleMedia(uid, id);
@@ -576,7 +598,12 @@ function repairLegacyCloudNotes(uid: string, cached: Note[], cloud: Note[]) {
     const local = cached.find(note => note.id === remote.id);
     const candidate = local && version(local) > version(remote) ? local : remote;
     if (candidate.isImported) continue;
-    const needsMedia = candidate.sections?.some(section => getMediaReferences(section.content).length || section.content.includes('data:image/'));
+    // Only notes whose images are not yet confirmed backed-up (or that embed
+    // raw base64) need repair. Without this, every load re-staged and
+    // re-wrote every image-bearing note, churning versions forever.
+    const receipts = readMediaMap(mediaReceiptsKey(uid));
+    const refs = (candidate.sections || []).flatMap(section => getMediaReferences(section.content));
+    const needsMedia = refs.some(id => !receipts[id]) || (candidate.sections || []).some(section => section.content.includes('data:image/'));
     if (needsMedia || version(candidate) > version(remote)) {
       const data = { ...candidate, updatedAt: Math.max(version(candidate), version(remote) + 1) };
       stageWrite(uid, 'notes', data);

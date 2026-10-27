@@ -59,7 +59,7 @@ export function planVaultImport(input: unknown, destination: string, makeId: () 
       if (visited.has(parent)) throw new Error('Backup contains a folder cycle');
       visited.add(parent); level++; parent = sourceFolders.get(parent).parentId;
     }
-    return { id: folderMap.get(folder.id)!, name: string(folder.name, 'Imported Folder'), parentId: folderMap.get(folder.parentId) || null, level, createdAt: timestamp(folder.createdAt, now), updatedAt: timestamp(folder.updatedAt, now) };
+    return { id: folderMap.get(folder.id)!, name: string(folder.name, 'Imported Folder').slice(0, 200), parentId: folderMap.get(folder.parentId) || null, level, createdAt: timestamp(folder.createdAt, now), updatedAt: timestamp(folder.updatedAt, now) };
   });
   const noteIds = new Set<string>();
   const importedNotes = notes.map(note => {
@@ -67,7 +67,7 @@ export function planVaultImport(input: unknown, destination: string, makeId: () 
     const sections = note.sections ?? note.sectionsArray ?? (typeof note.content === 'string' ? [{ title: 'Introduction', content: note.content }] : null);
     if (!Array.isArray(sections) || !sections.length || sections.length > 500) throw new Error('Each note must contain 1–500 sections');
     const sectionIds = new Set<string>();
-    return { id: `note_${makeId()}`, folderId: folderMap.get(note.folderId) || destination, title: string(note.title ?? note.name, 'Imported Note'), createdAt: timestamp(note.createdAt, now), updatedAt: timestamp(note.updatedAt, now), isImported: true, isLocalOnly: true,
+    return { id: `note_${makeId()}`, folderId: folderMap.get(note.folderId) || destination, title: string(note.title ?? note.name, 'Imported Note').slice(0, 300), createdAt: timestamp(note.createdAt, now), updatedAt: timestamp(note.updatedAt, now), isImported: true, isLocalOnly: true,
       sections: sections.map((section: any, index: number) => {
         if (!object(section) || typeof section.content !== 'string') throw new Error('Invalid section content');
         const id = string(section.id, `s_${index}`); if (sectionIds.has(id)) throw new Error('Duplicate section ID'); sectionIds.add(id);

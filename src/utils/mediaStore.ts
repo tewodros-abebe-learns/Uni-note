@@ -196,6 +196,18 @@ export async function registerLocalImage(url: string, filename?: string): Promis
   return url.startsWith('data:image/') ? registerLocalBlob(dataUrlToBlob(url), filename) : url;
 }
 
+const MAX_RESOLVED_URLS = 300;
+function cacheResolved(id: string, url: string) {
+  resolved.set(id, url);
+  // Bound Blob-URL memory when browsing many image-heavy notes: revoke the
+  // oldest URLs (already-rendered <img> elements keep their decoded image;
+  // a later resolve simply recreates the URL).
+  while (resolved.size > MAX_RESOLVED_URLS) {
+    const oldest = resolved.keys().next().value as string;
+    const stale = resolved.get(oldest); resolved.delete(oldest);
+    if (stale) { try { URL.revokeObjectURL(stale); } catch { /* noop */ } }
+  }
+}
 async function loadObjectUrl(id: string): Promise<string> {
   if (resolved.has(id)) return resolved.get(id)!;
   if (!resolving.has(id)) resolving.set(id, (async () => {
@@ -212,7 +224,7 @@ async function loadObjectUrl(id: string): Promise<string> {
     }
     if (!blob) return '';
     const url = URL.createObjectURL(blob);
-    resolved.set(id, url);
+    cacheResolved(id, url);
     notify();
     return url;
   })().finally(() => resolving.delete(id)));
@@ -249,7 +261,7 @@ export function resolveLocalImage(url: string): string {
       if (cache[mediaId] && typeof cache[mediaId] === 'string' && cache[mediaId].startsWith('data:image/')) {
         const blob = dataUrlToBlob(cache[mediaId]);
         const objUrl = URL.createObjectURL(blob);
-        resolved.set(mediaId, objUrl);
+        cacheResolved(mediaId, objUrl);
         resolved.set(url, objUrl);
         return objUrl;
       }
