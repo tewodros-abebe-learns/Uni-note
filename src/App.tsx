@@ -366,6 +366,7 @@ export default function App() {
             await updateNote(user.uid, noteId, { title: trimmedTitle });
           } catch (err) {
             console.warn("Failed to sync rename note to cloud:", err);
+            showToast('Rename saved locally; cloud sync will retry. Check connectivity and use Retry cloud sync.', 'error');
           }
         }
       }
@@ -919,6 +920,7 @@ export default function App() {
             await renameFolder(user.uid, folderId, trimmedName);
           } catch (err) {
             console.warn("Failed to sync rename folder to cloud:", err);
+            showToast('Rename saved locally; cloud sync will retry. Check connectivity and use Retry cloud sync.', 'error');
           }
         }
       }
@@ -3373,7 +3375,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
     flushPendingContent();
     try {
       const current = { ...note, sections: [sectionsRef.current[currentSectionIndexRef.current]] };
-      const backup = await createVaultBackup([current], [], getLocalMediaBlob);
+      const backup = await createVaultBackup([current], [], async id => (await getLocalMediaBlob(id)) || (user ? fetchVaultMediaFromFirestore(user.uid, id) : null));
       downloadFile(backupMarkdown(backup), `${note.title}.md`, 'text/markdown');
     } catch (error: any) { showToast?.(`Export failed: ${error.message}`, 'error'); }
   };
