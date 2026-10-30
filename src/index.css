@@ -23,6 +23,31 @@
   font-weight: 700; font-style: normal; font-display: swap;
 }
 
+
+/* Bundled reading fonts (Fontsource latin subsets, OFL) — local so the
+   reading-font choices work offline/installed instead of naming fonts that
+   were never loaded. */
+@font-face { font-family: 'Lora'; src: url('/fonts/Lora-Regular.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Lora'; src: url('/fonts/Lora-Italic.woff2') format('woff2'); font-weight: 400; font-style: italic; font-display: swap; }
+@font-face { font-family: 'Lora'; src: url('/fonts/Lora-Medium.woff2') format('woff2'); font-weight: 500; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Lora'; src: url('/fonts/Lora-SemiBold.woff2') format('woff2'); font-weight: 600; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Lora'; src: url('/fonts/Lora-Bold.woff2') format('woff2'); font-weight: 700; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Source Serif 4'; src: url('/fonts/SourceSerif-Regular.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Source Serif 4'; src: url('/fonts/SourceSerif-Italic.woff2') format('woff2'); font-weight: 400; font-style: italic; font-display: swap; }
+@font-face { font-family: 'Source Serif 4'; src: url('/fonts/SourceSerif-SemiBold.woff2') format('woff2'); font-weight: 600; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Source Serif 4'; src: url('/fonts/SourceSerif-Bold.woff2') format('woff2'); font-weight: 700; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Lexend'; src: url('/fonts/Lexend-Regular.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Lexend'; src: url('/fonts/Lexend-Medium.woff2') format('woff2'); font-weight: 500; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Lexend'; src: url('/fonts/Lexend-SemiBold.woff2') format('woff2'); font-weight: 600; font-style: normal; font-display: swap; }
+@font-face { font-family: 'JetBrains Mono'; src: url('/fonts/JetBrainsMono-Regular.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'JetBrains Mono'; src: url('/fonts/JetBrainsMono-Medium.woff2') format('woff2'); font-weight: 500; font-style: normal; font-display: swap; }
+@font-face { font-family: 'JetBrains Mono'; src: url('/fonts/JetBrainsMono-Bold.woff2') format('woff2'); font-weight: 700; font-style: normal; font-display: swap; }
+
+/* Serif long-reading choices get slightly looser leading than the sans UI. */
+[data-reading-font='source-serif'] .note-content-container,
+[data-reading-font='lora'] .note-content-container { line-height: 1.85; }
+[data-reading-font='lexend'] .note-content-container { line-height: 1.8; letter-spacing: 0.01em; }
+
 @theme inline {
   --color-bg: var(--bg-main);
   --color-main: var(--bg-main);

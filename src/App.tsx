@@ -1,6 +1,7 @@
 import { katex, renderNoteMath } from './lib/math';
 import { highlightSearch } from './lib/searchHighlight';
 import { planVaultImport, createVaultBackup, backupMarkdown, downloadFile } from './lib/vaultBackup';
+import { READING_FONTS, normalizeReadingFont, readingFontStack } from './lib/readingFonts';
 import { backupHtml } from './lib/htmlExport';
 import { getPwaState, subscribePwa, installPwa, applyPwaUpdate } from './lib/pwa';
 import { getMediaReferences } from './lib/mediaPromotion';
@@ -3435,13 +3436,13 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
         return {
           fontSize: (typeof parsed?.fontSize === 'number' && !isNaN(parsed.fontSize)) ? parsed.fontSize : 18,
           zoom: (typeof parsed?.zoom === 'number' && !isNaN(parsed.zoom) && parsed.zoom > 0) ? parsed.zoom : 100,
-          fontFamily: parsed?.fontFamily || 'var(--font-gemini)',
+          fontFamily: normalizeReadingFont(parsed?.fontFamily),
           fontWeight: (typeof parsed?.fontWeight === 'number' && !isNaN(parsed.fontWeight)) ? parsed.fontWeight : 400,
           theme: normalizeTheme(parsed?.theme)
         };
       }
     } catch {}
-    return { fontSize: 18, zoom: 100, fontFamily: 'var(--font-gemini)', fontWeight: 400, theme: 'dark' };
+    return { fontSize: 18, zoom: 100, fontFamily: 'google-sans', fontWeight: 400, theme: 'dark' };
   });
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -4634,7 +4635,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
         )}
       </AnimatePresence>
 
-      <div className="relative" style={{ fontSize: `${settings.fontSize}px`, fontFamily: settings.fontFamily || 'var(--font-gemini)', fontWeight: settings.fontWeight || 400, '--app-font-weight': settings.fontWeight || 400 } as React.CSSProperties}>
+      <div className="relative" data-reading-font={normalizeReadingFont(settings.fontFamily)} style={{ fontSize: `${settings.fontSize}px`, fontFamily: readingFontStack(normalizeReadingFont(settings.fontFamily)), fontWeight: settings.fontWeight || 400, '--app-font-weight': settings.fontWeight || 400 } as React.CSSProperties}>
         {isUploading && (
           <div className="absolute top-4 right-4 z-10 flex items-center gap-2 bg-black/80 backdrop-blur-md py-2 px-4 rounded-full border border-white/10 text-xs font-medium">
             <Loader2 className="w-3 h-3 animate-spin text-accent" />
@@ -5667,16 +5668,32 @@ const NoteEditor: React.FC<NoteEditorProps> = ({
                       <Type className="w-4 h-4" /> Font Style
                     </div>
                   </div>
-                  <select
-                    value={settings.fontFamily || 'var(--font-gemini)'}
-                    onChange={(e) => setSettings({ ...settings, fontFamily: e.target.value })}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-text focus:outline-none focus:border-accent transition-colors"
-                  >
-                    <option value="var(--font-gemini)">Sans-Serif (Default)</option>
-                    <option value="'Merriweather', serif">Serif (Academic)</option>
-                    <option value="'JetBrains Mono', monospace">Monospace (Technical)</option>
-                    <option value="'Comic Sans MS', 'Comic Sans', cursive">Comic Sans</option>
-                  </select>
+                  <div className="space-y-1.5" role="radiogroup" aria-label="Reading font">
+                    {READING_FONTS.map(font => {
+                      const active = normalizeReadingFont(settings.fontFamily) === font.id;
+                      return (
+                        <button
+                          key={font.id}
+                          type="button"
+                          role="radio"
+                          aria-checked={active}
+                          onClick={() => setSettings({ ...settings, fontFamily: font.id })}
+                          className={cn(
+                            "w-full p-3 rounded-xl border text-left transition-all",
+                            active ? "border-accent bg-accent/15 shadow-sm" : "border-white/10 bg-white/5 hover:bg-white/10"
+                          )}
+                        >
+                          <span className="block text-sm text-text leading-snug" style={{ fontFamily: font.stack }}>
+                            {font.name} — The quick brown fox jumps over the lazy dog
+                          </span>
+                          <span className={cn("block text-[11px] mt-1", active ? "text-accent" : "text-text/40")}>{font.desc}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[11px] text-text/40 leading-relaxed">
+                    All fonts are built into the app and work offline. Serif choices get slightly looser line spacing for comfortable long reading.
+                  </p>
                 </div>
 
                 <div className="space-y-4">
